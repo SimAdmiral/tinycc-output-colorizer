@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# Author: Filip Lazor
+# Project: PB111 – Code Highlighter
+
+# Help menu
+show_help() {
+    echo "ccr - TinyCC runner with debug output highlighter"
+    echo "Author: Filip Lazor"
+    echo "Project: PB111 - Code Highlighter"
+    echo
+    echo "Usage: ccr [-i] <filename | filename.c | prefix>"
+    echo
+    echo "  -i          interactive mode (uses -i flag in colorizer.py)"
+    echo "  otherwise   runs in normal mode"
+    echo
+    exit 0
+}
+
+# If no arguments or help is requested
+if [ $# -eq 0 ] || [[ "$1" == "help" || "$1" == "--help" || "$1" == "-help" ]]; then
+    show_help
+fi
+
+shopt -s nullglob
+
+COLORIZER="colorizer.py"
+COLORIZER_ARGS=()
+
+# Check for -i flag
+if [[ "$1" == "-i" ]]; then
+    echo "Running in interactive mode"
+    COLORIZER_ARGS+=("-i")
+    shift
+    if [ $# -eq 0 ]; then
+        echo "Error: Missing filename after -i"
+        exit 1
+    fi
+fi
+
+INPUT="$1"
+FILE=""
+
+# Handle trailing dot
+if [[ "$INPUT" == *"." ]]; then
+    INPUT="${INPUT%?}"  # Remove trailing dot
+    echo "Input ends with dot, changed to basename: $INPUT"
+fi
+
+# Case 1: exact *.c file
+if [[ "$INPUT" == *.c && -f "$INPUT" ]]; then
+    FILE="$INPUT"
+fi
+
+# Case 2: basename + .c
+if [[ -z "$FILE" ]]; then
+    CANDIDATE="${INPUT}.c"
+    [[ -f "$CANDIDATE" ]] && FILE="$CANDIDATE"
+fi
+
+# Case 3: prefix search
+if [[ -z "$FILE" ]]; then
+    matches=( "${INPUT}"*.c )
+    if (( ${#matches[@]} > 0 )); then
+        IFS=$'\n' sorted=( $(printf '%s\n' "${matches[@]}" | sort) )
+        FILE="${sorted[0]}"
+    fi
+fi
+
+if [[ -z "$FILE" ]]; then
+    echo "Error: no matching file found for '$1'"
+    exit 2
+fi
+
+# Run the C file and pipe through colorizer.py with optional -i
+tinycc --run "$FILE" 2>&1 | python3 "$(dirname "$0")/$COLORIZER" "${COLORIZER_ARGS[@]}"
