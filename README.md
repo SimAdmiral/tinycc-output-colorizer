@@ -36,19 +36,6 @@ Below are two screenshots demonstrating the difference between the **raw TinyCC 
 
 ---
 
-## Demo Video
-
-Watch this short video showcasing `ccr` in action, highlighting how the debug output is enhanced for readability:
-
-<div align="center">
-
-<video width="720" height="400" controls>
-  <source src="videos/record.mp4" type="video/mp4">
-  Your browser does not support the video tag.
-</video>
-
-</div>
-
 ## Requirements
 
 Before installing and using `ccr`, ensure you have the following installed on your system:
