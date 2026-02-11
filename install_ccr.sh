@@ -1,125 +1,116 @@
 #!/usr/bin/env bash
-# author: Filip Lazor
-# project: PB111 – Code Highlighter
-set -euo pipefail
+# Author: Filip Lazor
+# Project: PB111 – Code Highlighter
 
-# ------------- Configuration -------------------------------------------------
-DEFAULT_PREFIX="$HOME/bin"
-PREFIX="$DEFAULT_PREFIX"
-FILES=("ccr" "colorizer.py")
-
-GREEN="\e[32m"; RED="\e[31m"; YELLOW="\e[33m"; RESET="\e[0m"
-
-usage() {
-    cat <<EOF
-Usage: ./install_ccr.sh [--prefix DIR]
-
-Options:
-  --prefix DIR   Install scripts into DIR (default: $DEFAULT_PREFIX)
-  -h, --help     Show this help and exit
-
-This installer:
-  • checks for run‑time requirements (bash, python3, tinycc)
-  • installs ${FILES[*]} into the chosen directory
-  • adds directory to PATH if needed
-EOF
+# Help menu
+show_help() {
+    echo "ccr - TinyCC runner with debug output highlighter"
+    echo "Author: Filip Lazor"
+    echo "Project: PB111 - Code Highlighter"
+    echo
+    echo "Usage: ccr <week_number> <filename | filename.c | prefix> [-i]"
+    echo "  <week_number>  Two-digit week number (e.g., 00, 12)"
+    echo "  -i             interactive mode (uses -i flag in colorizer.py)"
+    echo "  otherwise      runs in normal mode"
+    echo
     exit 0
 }
 
-# ------------- Parse Arguments -----------------------------------------------
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        --prefix)
-            PREFIX="$2"
-            [[ "$PREFIX" == ~* ]] && PREFIX="${PREFIX/#\~/$HOME}"
-            shift 2
-            ;;
-        -h|--help)
-            usage
-            ;;
-        *)
-            echo -e "${RED}Unknown option: $1${RESET}"
-            usage
-            ;;
-    esac
+# If no arguments or help is requested
+if [ $# -eq 0 ] || [[ "$1" == "help" || "$1" == "--help" || "$1" == "-help" ]]; then
+    show_help
+fi
+
+shopt -s nullglob
+
+COLORIZER="colorizer.py"
+COLORIZER_ARGS=()
+WEEK_NUMBER=""
+INTERACTIVE_MODE=false
+
+# Parse arguments
+while (( "$#" )); do
+  case "$1" in
+    -i)
+      INTERACTIVE_MODE=true
+      COLORIZER_ARGS+=("-i")
+      shift
+      ;;
+    -h|--help)
+      show_help
+      ;;
+    *) # Assume it's the week number or filename
+      if [[ -z "$WEEK_NUMBER" ]] && [[ "$1" =~ ^[0-9]{2}$ ]]; then
+        WEEK_NUMBER="$1"
+        shift
+      else
+        if [[ -z "$INPUT_BASENAME" ]]; then
+            INPUT_BASENAME="$1"
+        fi
+        shift
+      fi
+      ;;
+  esac
 done
 
-# ------------- Banner --------------------------------------------------------
-echo -e "${YELLOW}PB111 – Code‑Highlighter Installer${RESET}"
-echo "Target directory: $PREFIX"
-echo
-
-# ------------- Check Requirements --------------------------------------------
-declare -A REQUIREMENTS=(
-  [bash]="bash"
-  [python3]="python3"
-  [tinycc]="tinycc"
-)
-
-MISSING=()
-for key in "${!REQUIREMENTS[@]}"; do
-    if ! command -v "${REQUIREMENTS[$key]}" >/dev/null; then
-        echo -e " • ${key}: ${RED}missing ✘${RESET}"
-        MISSING+=("$key")
-    else
-        echo -e " • ${key}: ${GREEN}found ✓${RESET}"
-    fi
-done
-
-if (( ${#MISSING[@]} )); then
-    echo -e "\n${RED}Missing requirement(s):${RESET} ${MISSING[*]}"
-    echo "Install them using your system's package manager before continuing."
+if [[ -z "$WEEK_NUMBER" ]]; then
+    echo "Error: Missing week number. Usage: ccr <week_number> <filename>"
     exit 1
 fi
 
-# ------------- Install Files -------------------------------------------------
-mkdir -p "$PREFIX"
+if [[ -z "$INPUT_BASENAME" ]]; then
+    echo "Error: Missing filename. Usage: ccr <week_number> <filename>"
+    exit 1
+fi
 
-for file in "${FILES[@]}"; do
-    if [[ -f "$file" ]]; then
-        install -m 755 "$file" "$PREFIX/$file"
-        echo "Installed $file to $PREFIX/"
-    else
-        echo -e "${RED}Warning:${RESET} File not found: $file"
+echo "Week Number: $WEEK_NUMBER"
+if $INTERACTIVE_MODE; then
+    echo "Running in interactive mode"
+fi
+
+
+FILE=""
+
+# Handle trailing dot
+if [[ "$INPUT_BASENAME" == *"." ]]; then
+    INPUT_BASENAME="${INPUT_BASENAME%?}"  # Remove trailing dot
+    echo "Input ends with dot, changed to basename: $INPUT_BASENAME"
+fi
+
+# Case 1: exact *.c file
+if [[ "$INPUT_BASENAME" == *.c && -f "$INPUT_BASENAME" ]]; then
+    FILE="$INPUT_BASENAME"
+fi
+
+# Case 2: basename + .c
+if [[ -z "$FILE" ]]; then
+    CANDIDATE="${INPUT_BASENAME}.c"
+    [[ -f "$CANDIDATE" ]] && FILE="$CANDIDATE"
+fi
+
+# Case 3: prefix search
+if [[ -z "$FILE" ]]; then
+    matches=( "${INPUT_BASENAME}"*.c )
+    if (( ${#matches[@]} > 0 )); then
+        IFS=$'\n' sorted=( $(printf '%s\n' "${matches[@]}" | sort) )
+        FILE="${sorted[0]}"
     fi
-done
-
-# ------------- PATH Runtime Check --------------------------------------------
-if [[ ":$PATH:" != *":$PREFIX:"* ]]; then
-    echo -e "\n${YELLOW}Note:${RESET} $PREFIX is not in your current session's PATH."
-    
-    read -rp "${YELLOW}Do you want to add $PREFIX to PATH for the current session now? [y/N]: ${RESET}" answer
-    case "$answer" in
-        y|Y|yes|YES|Yes )
-            export PATH="$PREFIX:$PATH"
-            echo -e "${GREEN}Added $PREFIX to PATH for this session.${RESET}"
-            ;;
-        * )
-            echo "Skipped adding $PREFIX to PATH for current session."
-            ;;
-    esac
 fi
 
-# ------------- Ensure PATH is Persistently Set -------------------------------
-SHELL_RC=""
-if [[ "$SHELL" == */bash ]]; then
-    SHELL_RC="$HOME/.bashrc"
-elif [[ "$SHELL" == */zsh ]]; then
-    SHELL_RC="$HOME/.zshrc"
+if [[ -z "$FILE" ]]; then
+    echo "Error: no matching C file found for '$INPUT_BASENAME'"
+    exit 2
 fi
 
-if [[ -n "$SHELL_RC" ]]; then
-    if ! grep -q 'export PATH="$HOME/bin:$PATH"' "$SHELL_RC"; then
-        echo -e "\n${YELLOW}Adding export to $SHELL_RC...${RESET}"
-        echo 'export PATH="$HOME/bin:$PATH"' >> "$SHELL_RC"
-        echo -e "${GREEN}✓ Done.${RESET} Now run: source $SHELL_RC"
-    else
-        echo -e "\n${GREEN}✓ PATH already set in $SHELL_RC.${RESET}"
-    fi
-else
-    echo -e "\n${RED}Shell config not detected.${RESET} Add this to your shell config manually:"
-    echo '  export PATH="$HOME/bin:$PATH"'
+OUTPUT_BIN="${FILE%.c}.bin" # e.g., d2_prime.bin
+
+echo "Compiling $FILE into $OUTPUT_BIN for week $WEEK_NUMBER..."
+tinycc --week "$WEEK_NUMBER" -o "$OUTPUT_BIN" "$FILE"
+
+if [ $? -ne 0 ]; then
+    echo "Compilation failed."
+    exit 3
 fi
 
-# ------------- Done ----------------------------------------------------------
-echo -e "\n${GREEN}✔ Installation complete!${RESET} You can now run: ccr --help"
+echo "Running $OUTPUT_BIN with tinyvm and colorizing output..."
+tinyvm "$OUTPUT_BIN" 2>&1 | python3 "$(dirname "$0")/$COLORIZER" "${COLORIZER_ARGS[@]}"
