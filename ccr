@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+# Author: Sim Amiral
+# Project: PB111 – Code Highlighter
+
+# Help menu
+show_help() {
+    echo "ccr - TinyCC runner with debug output highlighter"
+    echo "Author: Sim Amiral"
+    echo "Project: PB111 - Code Highlighter"
+    echo
+    echo "Usage: ccr <week_number> <filename | filename.c | prefix> [-i]"
+    echo "  <week_number>  Two-digit week number (e.g., 00, 12)"
+    echo "  -i             interactive mode (uses -i flag in colorizer.py)"
+    echo "  otherwise      runs in normal mode"
+    echo
+    exit 0
+}
+
+# If no arguments or help is requested
+if [ $# -eq 0 ] || [[ "$1" == "help" || "$1" == "--help" || "$1" == "-help" ]]; then
+    show_help
+fi
+
+shopt -s nullglob
+
+COLORIZER="colorizer.py"
+COLORIZER_ARGS=()
+WEEK_NUMBER=""
+INTERACTIVE_MODE=false
+
+# Parse arguments
+while (( "$#" )); do
+  case "$1" in
+    -i)
+      INTERACTIVE_MODE=true
+      COLORIZER_ARGS+=("-i")
+      shift
+      ;;
+    -h|--help)
+      show_help
+      ;;
+    *) # Assume it's the week number or filename
+      if [[ -z "$WEEK_NUMBER" ]] && [[ "$1" =~ ^[0-9]{2}$ ]]; then
+        WEEK_NUMBER="$1"
+        shift
+      else
+        if [[ -z "$INPUT_BASENAME" ]]; then
+            INPUT_BASENAME="$1"
+        fi
+        shift
+      fi
+      ;;
+  esac
+done
+
+if [[ -z "$WEEK_NUMBER" ]]; then
+    echo "Error: Missing week number. Usage: ccr <week_number> <filename>"
+    exit 1
+fi
+
+if [[ -z "$INPUT_BASENAME" ]]; then
+    echo "Error: Missing filename. Usage: ccr <week_number> <filename>"
+    exit 1
+fi
+
+echo "Week Number: $WEEK_NUMBER"
+if $INTERACTIVE_MODE; then
+    echo "Running in interactive mode"
+fi
+
+
+FILE=""
+
+# Handle trailing dot
+if [[ "$INPUT_BASENAME" == *"." ]]; then
+    INPUT_BASENAME="${INPUT_BASENAME%?}"  # Remove trailing dot
+    echo "Input ends with dot, changed to basename: $INPUT_BASENAME"
+fi
+
+# Case 1: exact *.c file
+if [[ "$INPUT_BASENAME" == *.c && -f "$INPUT_BASENAME" ]]; then
+    FILE="$INPUT_BASENAME"
+fi
+
+# Case 2: basename + .c
+if [[ -z "$FILE" ]]; then
+    CANDIDATE="${INPUT_BASENAME}.c"
+    [[ -f "$CANDIDATE" ]] && FILE="$CANDIDATE"
+fi
+
+# Case 3: prefix search
+if [[ -z "$FILE" ]]; then
+    matches=( "${INPUT_BASENAME}"*.c )
+    if (( ${#matches[@]} > 0 )); then
+        IFS=$'\n' sorted=( $(printf '%s\n' "${matches[@]}" | sort) )
+        FILE="${sorted[0]}"
+    fi
+fi
+
+if [[ -z "$FILE" ]]; then
+    echo "Error: no matching C file found for '$INPUT_BASENAME'"
+    exit 2
+fi
+
+OUTPUT_BIN="${FILE%.c}.bin" # e.g., d2_prime.bin
+
+echo "Compiling $FILE into $OUTPUT_BIN for week $WEEK_NUMBER..."
+tinycc --week "$WEEK_NUMBER" -o "$OUTPUT_BIN" "$FILE"
+
+if [ $? -ne 0 ]; then
+    echo "Compilation failed."
+    exit 3
+fi
+
+echo "Running $OUTPUT_BIN with tinyvm and colorizing output..."
+tinyvm "$OUTPUT_BIN" 2>&1 | python3 "$(dirname "$0")/$COLORIZER" "${COLORIZER_ARGS[@]}"
